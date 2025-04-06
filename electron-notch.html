@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notch Window</title>
+    <link rel="stylesheet" href="electron-notch.css">
+    <link rel="stylesheet" href="libs/fontawesome-free-6.7.2-web/css/all.min.css" />
+</head>
+<body>
+<div id="notch">
+    <div class="notch-content">
+        <input class="audiofile" type="file" accept=".mp3,.flac,.ogg,.lrc,image/*" multiple webkitdirectory />
+        <div class="album-art">
+            <div class="album-art-overlay"></div>
+        </div>
+        <div class="notch-info">
+            <span class="notch-title">未选择音频</span>
+            <span class="notch-lyrics"></span>
+        </div>
+        <div class="progress-container">
+            <div class="notch-progress"></div>
+            <div class="scrollbar">
+                <div class="scrollbar-thumb"></div>
+            </div>
+        </div>
+        <span class="notch-time"></span>
+        <div class="notch-controls">
+            <i class="fas fa-backward notch-prev"></i>
+            <i class="fas fa-play notch-play"></i>
+            <i class="fas fa-pause notch-pause" style="display: none;"></i>
+            <i class="fas fa-forward notch-next"></i>
+            <div class="notch-volume">
+                <i class="fas fa-volume-up"></i>
+                <div class="notch-volume-bar">
+                    <div class="notch-volume-process"></div>
+                    <div class="scrollbar">
+                        <div class="scrollbar-thumb"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="waveform">
+            <span></span><span></span><span></span><span></span><span></span><span></span>
+        </div>
+    </div>
+</div>
+<audio class="player"></audio>
+<script src="electron-notch.js"></script>
+</body>
+</html>
