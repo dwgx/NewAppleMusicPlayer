@@ -1,9 +1,9 @@
 const { ipcRenderer } = require('electron');
 
+const notch = document.getElementById('notch');
 const audioFileInput = document.querySelector('.audiofile');
 const audioPlayer = document.querySelector('.player');
-const notch = document.getElementById('notch');
-const notchProgressContainer = document.querySelector('#notch .progress-container');
+const notchProgressContainer = document.querySelector('.progress-container');
 const notchProgress = document.querySelector('.notch-progress');
 const notchTime = document.querySelector('.notch-time');
 const notchPlay = document.querySelector('.notch-play');
@@ -15,7 +15,7 @@ const notchTitle = document.querySelector('.notch-title');
 const notchLyrics = document.querySelector('.notch-lyrics');
 const notchVolumeBar = document.querySelector('.notch-volume-bar');
 const notchVolumeProcess = document.querySelector('.notch-volume-process');
-const waveformBars = document.querySelectorAll('#notch .waveform span');
+const waveformBars = document.querySelectorAll('.waveform span');
 
 let playing = false;
 let activeDragBar = null;
@@ -25,12 +25,30 @@ let playlistData = [];
 let allLrcFiles = [];
 let lyrics = [];
 let audioContext, analyser, dataArray;
-let lastUpdateTime = 0;
 let playbackMode = localStorage.getItem('playbackMode') || 'loop';
+
+// 核心事件监听
+notch.addEventListener('mousedown', (e) => {
+    if (e.button === 0) {
+        ipcRenderer.send('start-drag', { x: e.screenX, y: e.screenY });
+    }
+});
+
+notch.addEventListener('mouseenter', () => {
+    ipcRenderer.send('toggle-mouse-events', false);
+    notch.classList.add('expanded');
+    setTimeout(checkLyricsOverflow, 300);
+});
+
+notch.addEventListener('mouseleave', () => {
+    ipcRenderer.send('toggle-mouse-events', true);
+    notch.classList.remove('expanded');
+    setTimeout(checkLyricsOverflow, 300);
+});
 
 function throttle(func, limit) {
     let inThrottle;
-    return function (...args) {
+    return (...args) => {
         if (!inThrottle) {
             func.apply(this, args);
             inThrottle = true;
@@ -40,12 +58,11 @@ function throttle(func, limit) {
 }
 
 function formatTime(seconds) {
-    if (Number.isNaN(seconds)) return "0:00";
+    if (isNaN(seconds)) return "0:00";
     const minutes = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${minutes}:${secs < 10 ? '0' : ''}${secs}`;
 }
-
 function setupAudioAnalysis() {
     try {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -146,38 +163,29 @@ async function processFiles(files) {
 }
 
 async function processSingleFile(file, src, autoPlay = false, cover = null) {
-    try {
-        currentFile = { file, src, cover };
-        audioPlayer.src = src;
-        audioPlayer.currentTime = 0;
-        resetPlaybackUI();
+    currentFile = { file, src, cover };
+    audioPlayer.src = src;
+    audioPlayer.currentTime = 0;
+    resetPlaybackUI();
 
-        let filename = file.name.split('.')[0];
-        notchTitle.textContent = filename;
-        notchTime.innerHTML = `<span class="current-time">0:00</span><span class="total-time">${formatTime(audioPlayer.duration || 0)}</span>`;
+    notchTitle.textContent = file.name.split('.')[0];
+    notchTime.innerHTML = `<span class="current-time">0:00</span><span class="total-time">${formatTime(audioPlayer.duration || 0)}</span>`;
 
-        if (cover) {
-            const coverSrc = URL.createObjectURL(cover);
-            notchAlbumArt.classList.remove('flip');
-            notchAlbumArt.style.backgroundImage = `url(${coverSrc})`;
-            void notchAlbumArt.offsetWidth;
-            notchAlbumArt.classList.add('flip');
-            updateWaveformColors(coverSrc);
-        } else {
-            notchAlbumArt.style.backgroundImage = "";
-            applyWaveformGradient(['#fff']);
-        }
+    if (cover) {
+        const coverSrc = URL.createObjectURL(cover);
+        notchAlbumArt.style.backgroundImage = `url(${coverSrc})`;
+        notchAlbumArt.classList.add('flip');
+        setTimeout(() => updateWaveformColors(coverSrc), 0); // 异步处理颜色提取
+    } else {
+        notchAlbumArt.style.backgroundImage = "";
+        applyWaveformGradient(['#fff']);
+    }
 
-        await loadMatchingLrc(file.webkitRelativePath || file.name);
-        checkLyricsOverflow();
+    await loadMatchingLrc(file.name);
+    checkLyricsOverflow();
 
-        audioPlayer.addEventListener('loadedmetadata', () => {
-            if (autoPlay) togglePlayPause(true);
-        }, { once: true });
-    } catch (error) {
-        console.error("处理音频文件失败：", error);
-        notchTitle.textContent = "加载失败，请检查文件格式";
-        notchLyrics.textContent = "";
+    if (autoPlay) {
+        audioPlayer.onloadedmetadata = () => togglePlayPause(true);
     }
 }
 
@@ -228,16 +236,22 @@ audioPlayer.addEventListener("loadedmetadata", () => {
 });
 
 audioPlayer.addEventListener("timeupdate", throttle(() => {
-    if (!audioPlayer.duration) return;
     const percentage = (audioPlayer.currentTime / audioPlayer.duration) * 100;
+    progress.style.width = `${percentage}%`;
     notchProgress.style.width = `${percentage}%`;
+    startTime.textContent = formatTime(audioPlayer.currentTime);
     notchTime.innerHTML = `<span class="current-time">${formatTime(audioPlayer.currentTime)}</span><span class="total-time">${formatTime(audioPlayer.duration)}</span>`;
-    if (playing) {
-        requestAnimationFrame(updateWaveform);
-        updateNotchLyrics();
-    }
+    updateNotchLyrics(); // 歌词更新放这里
 }, 100));
 
+// 波形单独调度
+function updateWaveformLoop() {
+    if (playing) {
+        updateWaveform();
+        requestAnimationFrame(updateWaveformLoop);
+    }
+}
+audioPlayer.addEventListener("play", () => requestAnimationFrame(updateWaveformLoop));
 audioPlayer.addEventListener("ended", playNextSong);
 
 function resetPlaybackUI() {
@@ -526,5 +540,27 @@ function checkLyricsOverflow() {
 }
 
 window.addEventListener('load', () => {
-    playbackMode = localStorage.getItem('playbackMode') || 'loop';
+    setTimeout(() => {
+        notchPlay.addEventListener('click', () => togglePlayPause(true));
+        notchPause.addEventListener('click', () => togglePlayPause(false));
+        notchNext.addEventListener('click', playNextSong);
+        notchPrev.addEventListener('click', playPrevSong);
+
+        const throttledMouseMove = throttle((event) => {
+            if (activeDragBar === 'notchProgress') updateNotchProgress(event);
+            else if (activeDragBar === 'notchVolume') updateNotchVolume(event);
+        }, 16);
+
+        notchProgressContainer.addEventListener('mousedown', (event) => {
+            activeDragBar = 'notchProgress';
+            updateNotchProgress(event);
+        });
+        notchVolumeBar.addEventListener('mousedown', (event) => {
+            activeDragBar = 'notchVolume';
+            updateNotchVolume(event);
+        });
+
+        document.addEventListener('mousemove', throttledMouseMove);
+        document.addEventListener('mouseup', () => (activeDragBar = null));
+    }, 100); // 延迟100ms绑定事件
 });

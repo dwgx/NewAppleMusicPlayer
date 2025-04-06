@@ -123,8 +123,7 @@ Fork 项目 提交 Pull Request
 # 致谢
 感谢 Electron FontAwesome 和 jsmediatags 的开发者 给了我实现梦想的工具 也要感谢你 是的 就是你 愿意体验和支持这个项目
 
-许可
-#### 本项目采用 MIT License LICENSE 自由使用 修改和分享 但请保留原作者信息
-
+## License
+#### 本项目采用 MIT [LICENSE](LICENSE) 自由使用 修改和分享 但请保留原作者信息
 Apple MusicPlayer 
 
