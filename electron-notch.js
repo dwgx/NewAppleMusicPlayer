@@ -1,3 +1,4 @@
+// electron-notch.js (修复后的版本)
 const { ipcRenderer } = require('electron');
 
 const audioFileInput = document.querySelector('.audiofile');
@@ -29,13 +30,13 @@ let lastUpdateTime = 0;
 let playbackMode = localStorage.getItem('playbackMode') || 'loop';
 
 notch.addEventListener('mouseenter', () => {
-    ipcRenderer.send('toggle-mouse-events', false); // 进入时取消忽略鼠标事件
+    ipcRenderer.send('toggle-mouse-events', false);
     notch.classList.add('expanded');
     setTimeout(checkLyricsOverflow, 300);
 });
 
 notch.addEventListener('mouseleave', () => {
-    ipcRenderer.send('toggle-mouse-events', true); // 离开时恢复忽略鼠标事件
+    ipcRenderer.send('toggle-mouse-events', true);
     notch.classList.remove('expanded');
     setTimeout(checkLyricsOverflow, 300);
 });
@@ -184,6 +185,7 @@ async function processSingleFile(file, src, autoPlay = false, cover = null) {
         checkLyricsOverflow();
 
         audioPlayer.addEventListener('loadedmetadata', () => {
+            notchTime.innerHTML = `<span class="current-time">0:00</span><span class="total-time">${formatTime(audioPlayer.duration)}</span>`;
             if (autoPlay) togglePlayPause(true);
         }, { once: true });
     } catch (error) {
@@ -250,11 +252,14 @@ audioPlayer.addEventListener("timeupdate", throttle(() => {
     }
 }, 100));
 
-audioPlayer.addEventListener("ended", playNextSong);
+// 修复播放结束不自动下一首的问题
+audioPlayer.addEventListener("ended", () => {
+    playNextSong();
+});
 
 function resetPlaybackUI() {
     notchProgress.style.width = '0%';
-    notchTime.textContent = `0:00 / ${formatTime(audioPlayer.duration || 0)}`;
+    notchTime.innerHTML = `<span class="current-time">0:00</span><span class="total-time">${formatTime(audioPlayer.duration || 0)}</span>`;
     notchPlay.style.display = 'inline';
     notchPause.style.display = 'none';
     notch.classList.remove('playing');
@@ -275,6 +280,7 @@ function togglePlayPause(isPlaying) {
         }).catch(error => {
             console.error("播放失败：", error);
             playing = false;
+            resetPlaybackUI();
         });
     } else {
         audioPlayer.pause();
@@ -306,15 +312,6 @@ notchVolumeBar.addEventListener("mousedown", (event) => {
 
 document.addEventListener("mousemove", throttledMouseMove);
 document.addEventListener("mouseup", () => activeDragBar = null);
-
-notch.addEventListener('mouseenter', () => {
-    notch.classList.add('expanded');
-    setTimeout(checkLyricsOverflow, 300);
-});
-notch.addEventListener('mouseleave', () => {
-    notch.classList.remove('expanded');
-    setTimeout(checkLyricsOverflow, 300);
-});
 
 function updateNotchProgress(event) {
     if (Number.isNaN(audioPlayer.duration)) return;
@@ -414,6 +411,7 @@ function playPrevSong() {
     }
 }
 
+// 以下为波形图和歌词相关函数，与 index.js 保持一致
 function updateWaveform() {
     if (!analyser || !dataArray || !playing) {
         waveformBars.forEach(bar => bar.style.transform = 'scaleY(0.2)');
