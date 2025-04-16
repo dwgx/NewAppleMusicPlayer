@@ -308,41 +308,44 @@ input[type="file"] {
     position: relative;
     z-index: 2;
     padding: 0 5vw;
-    display: flex; /* 确保容器支持灵活布局 */
-    align-items: center; /* 垂直居中内容 */
-    justify-content: center; /* 水平居中内容 */
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .lyrics {
-    position: relative; /* 改为 relative，避免绝对定位干扰 */
+    position: absolute;
+    top: 50%;
+    left: 0;
     width: 100%;
-    min-height: 100%; /* 确保歌词容器占满高度 */
-    display: flex;
-    flex-direction: column;
-    justify-content: center; /* 初始垂直居中 */
-    align-items: center;
+    transition: all 1s cubic-bezier(0.25, 0.8, 0.25, 1);
     font-size: 24px;
     line-height: 40px;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
     color: #fff;
     overflow: hidden;
-    transition: transform 1s cubic-bezier(0.25, 0.8, 0.25, 1); /* 控制滚动动画 */
 }
 
 .lyrics div {
     margin: 2% 0;
     opacity: 0.3;
-    will-change: opacity, font-size, font-weight, margin-left;
+    will-change: opacity, font-size, font-weight, margin-left, margin-top, margin-bottom;
     transition: opacity 0.75s cubic-bezier(0.25, 0.8, 0.25, 1),
     font-size 0.75s cubic-bezier(0.25, 0.8, 0.25, 1),
     font-weight 0.75s cubic-bezier(0.25, 0.8, 0.25, 1),
-    margin-left 0.75s cubic-bezier(0.25, 0.8, 0.25, 1);
+    margin-left 0.75s cubic-bezier(0.25, 0.8, 0.25, 1),
+    margin-top 1s cubic-bezier(0.25, 0.8, 0.25, 1),
+    margin-bottom 1s cubic-bezier(0.25, 0.8, 0.25, 1);
     width: 100%;
     text-shadow: 0 1px 5px #000;
     font-weight: normal;
     font-size: 28px;
     word-wrap: break-word;
     white-space: normal;
-    text-align: center; /* 水平居中文本 */
 }
 
 .lyrics div.highlight {
