@@ -698,7 +698,7 @@ sb*/
 /* 展开状态下的标题：完整展示，允许换行 */
 #notch.expanded .notch-title {
     max-width: 100%; /* 移除宽度限制，充分利用notch-info的空间 */
-    white-space: none; /* 允许换行 */
+    white-space: normal; /* 允许换行 */
     overflow: visible; /* 移除溢出隐藏 */
     text-overflow: unset; /* 移除省略号 */
     font-size: 14px;
@@ -729,7 +729,6 @@ sb*/
     min-width: 80px;
     max-width: none; /* 移除最大宽度限制 */
 }
-
 
 /* 跑马灯效果 */
 .notch-title.marquee {
@@ -800,7 +799,9 @@ sb*/
     margin: 0 10px;
     display: none;
     cursor: pointer;
-    transition: 0.3s ease;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
 }
 
 #notch.expanded .progress-container {
@@ -814,6 +815,18 @@ sb*/
     transform: translateX(-50%);
     margin: 0;
     border-radius: 4px;
+}
+
+.notch-progress {
+    width: 0;
+    height: 100%;
+    background: linear-gradient(90deg, #fff, #ccc);
+    border-radius: 4px;
+    position: absolute;
+    top: 0;
+    left: 0;
+    transition: width 0.1s linear;
+    filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.5));
 }
 
 .notch-time {
@@ -868,6 +881,35 @@ sb*/
     display: flex;
 }
 
+.notch-volume-bar {
+    width: 60px;
+    height: 8px;
+    margin: 0;
+    position: relative;
+    cursor: pointer;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    overflow: hidden;
+    transition: height 0.2s ease, filter 0.2s ease;
+}
+
+.notch-volume-bar:hover {
+    height: 10px;
+    filter: brightness(1.2);
+}
+
+.notch-volume-process {
+    width: 0;
+    height: 100%;
+    background: linear-gradient(90deg, #fff, #ccc);
+    border-radius: 4px;
+    position: absolute;
+    top: 0;
+    left: 0;
+    transition: width 0.1s linear;
+    filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.5));
+}
+
 #notch .waveform {
     display: none;
     position: absolute;
@@ -893,4 +935,3 @@ sb*/
     will-change: transform;
     transition: transform 0.05s ease-out;
 }
-
