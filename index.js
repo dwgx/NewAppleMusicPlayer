@@ -6,6 +6,7 @@ const playlist = document.querySelector('.playlist');
 const playlistToggle = document.querySelector('.playlist-toggle');
 const closePlaylist = document.querySelector('.close-playlist');
 const searchBar = document.querySelector('.search-bar');
+const lyricsContainer = document.querySelector('.lyricscontainer');
 const lyricsElement = document.querySelector('.lyrics');
 const justSvg = document.querySelector('.svg');
 const progressBar = document.querySelector('.processbar');
@@ -54,6 +55,9 @@ let currentFile = null;
 let fileArray = [];
 let audioContext, analyser, dataArray;
 let lastUpdateTime = 0;
+let currentPlayer = null;
+let videoPlayer = null;
+let lastLyricUpdateTime = 0; // 新增：用于歌词更新防抖
 
 function throttle(func, limit) {
     let inThrottle;
@@ -75,7 +79,7 @@ function debounce(func, wait) {
 }
 
 function formatTime(seconds) {
-    if (Number.isNaN(seconds)) return "0:00";
+    if (Number.isNaN(seconds) || seconds === undefined) return "0:00";
     const minutes = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${minutes}:${secs < 10 ? '0' : ''}${secs}`;
@@ -98,7 +102,6 @@ function setupAudioAnalysis() {
 svgcontainer.addEventListener("click", () => audioFileInput.click());
 
 audioFileInput.addEventListener("change", async (event) => {
-    console.log("Files selected:", event.target.files); // 添加日志
     const files = event.target.files;
     if (!files.length) {
         notchTitle.textContent = "未选择文件";
@@ -129,7 +132,7 @@ function fragmentMatchScore(audioName, lrcName) {
 }
 
 function findBestMatchingLrc(audioPath, lrcFiles, albumPath) {
-    const audioName = audioPath.split('/').pop().replace(/\.mp3|\.flac|\.ogg$/i, '');
+    const audioName = audioPath.split('/').pop().replace(/\.mp3|\.flac|\.ogg|\.mp4|\.webm$/i, '');
     const matches = lrcFiles
         .filter(lrcPath => lrcPath.split('/').slice(0, -1).join('/') === albumPath)
         .map(lrcPath => {
@@ -140,91 +143,140 @@ function findBestMatchingLrc(audioPath, lrcFiles, albumPath) {
     return matches.length ? matches.reduce((best, current) => current.score > best.score ? current : best).lrcPath : null;
 }
 
-async function processFolder(files) {
-    const audioFiles = Array.from(files).filter(file =>
-        file.type === "audio/mpeg" ||
-        file.type === "audio/flac" ||
-        file.type === "audio/ogg" // 添加 OGG 支持
-    );
-    const lrcFiles = Array.from(files).filter(file => file.name.toLowerCase().endsWith(".lrc"));
-    const imageFiles = Array.from(files).filter(file => file.type.startsWith("image/"));
-    const albumMap = {};
-
-    audioFiles.forEach(file => {
-        const path = file.webkitRelativePath || file.name;
-        const albumPath = path.split('/').slice(0, -1).join('/');
-        if (!albumMap[albumPath]) albumMap[albumPath] = { songs: [], cover: null };
-        albumMap[albumPath].songs.push(file);
+async function captureVideoFrame(file) {
+    return new Promise((resolve) => {
+        const video = document.createElement('video');
+        video.src = URL.createObjectURL(file);
+        video.currentTime = 1;
+        video.addEventListener('seeked', () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            canvas.toBlob(blob => {
+                const url = URL.createObjectURL(blob);
+                resolve({ name: 'cover.png', url });
+                video.src = '';
+            });
+        }, { once: true });
+        video.addEventListener('error', () => resolve(null), { once: true });
     });
-
-    imageFiles.forEach(image => {
-        const path = image.webkitRelativePath || image.name;
-        const albumPath = path.split('/').slice(0, -1).join('/');
-        if (albumMap[albumPath]) albumMap[albumPath].cover = image;
-    });
-
-    albums = Object.keys(albumMap).map(albumPath => ({
-        name: albumPath,
-        songs: albumMap[albumPath].songs,
-        cover: albumMap[albumPath].cover
-    }));
-
-    playlistData = albums.flatMap(album => album.songs.map(file => ({
-        file,
-        name: (file.webkitRelativePath || file.name).split('/').pop()
-    })));
-    allLrcFiles = lrcFiles.map(file => file.webkitRelativePath || file.name);
-
-    updatePlaylist();
-    if (audioFiles.length) await processSingleFile(audioFiles[0], URL.createObjectURL(audioFiles[0]), true);
 }
 
-async function processSingleFile(file, src, autoPlay = false) {
-    try {
-        currentFile = { file, src };
-        audioPlayer.src = src;
-        audioPlayer.currentTime = 0;
-        resetPlaybackUI();
+function setupVideoControls(video) {
+    const progress = video.querySelector('.video-progress');
+    const progressFill = video.querySelector('.video-progress-fill');
+    const playBtn = video.querySelector('.video-play');
+    const pauseBtn = video.querySelector('.video-pause');
 
-        let filename = currentFile.file ? (currentFile.file.webkitRelativePath || currentFile.file.name).split('/').pop().split('.')[0] : "未知文件";
-        audioName.textContent = filename;
-        notchTitle.textContent = filename;
-        notchTime.innerHTML = `<span class="current-time">0:00</span><span class="total-time">${formatTime(audioPlayer.duration || 0)}</span>`;
+    let isDragging = false;
+    let startX, startY, currentLeft, currentTop;
+    let rafId = null;
 
-        const album = albums.find(a => a.songs.some(s => s === currentFile.file));
-        const cover = album?.cover;
-        if (cover) {
-            const coverSrc = URL.createObjectURL(cover);
-            svgcontainer.style.backgroundImage = `url(${coverSrc})`;
-            svgcontainer.style.backgroundSize = "cover";
-            svgcontainer.style.backgroundPosition = "center";
-            notchAlbumArt.classList.remove('flip');
-            notchAlbumArt.style.backgroundImage = `url(${coverSrc})`;
-            void notchAlbumArt.offsetWidth;
-            notchAlbumArt.classList.add('flip');
-            justSvg.style.opacity = "0";
-            updateBackground(coverSrc);
-        } else {
-            svgcontainer.style.backgroundImage = "none";
-            svgcontainer.style.backgroundColor = "#e8e8e8";
-            notchAlbumArt.classList.remove('flip');
-            notchAlbumArt.style.backgroundImage = "";
-            justSvg.style.opacity = "1";
-            updateBackground(null);
+    video.style.left = '50%';
+    video.style.top = '50%';
+    video.style.transform = 'translate(-50%, -50%)';
+    video.style.transition = 'left 0.1s ease-out, top 0.1s ease-out';
+
+    video.addEventListener('mousedown', (e) => {
+        if (e.target === video) {
+            isDragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            currentLeft = parseFloat(video.style.left) || 50;
+            currentTop = parseFloat(video.style.top) || 50;
+            video.style.transition = '';
+            e.preventDefault();
         }
+    });
 
-        await loadMatchingLrc(currentFile.file ? (currentFile.file.webkitRelativePath || currentFile.file.name) : src);
-        await loadSongInfo(currentFile.file);
-        highlightCurrentSong();
-        checkTitleOverflow();
+    document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
 
-        audioPlayer.addEventListener('loadedmetadata', () => {
-            if (autoPlay) togglePlayPause(true);
-        }, { once: true });
-    } catch (error) {
-        console.error("处理音频文件失败：", error);
-        audioName.textContent = "加载失败，请检查文件格式";
-        notchTitle.textContent = "加载失败，请检查文件格式";
+        cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(() => {
+            const deltaX = (e.clientX - startX) / window.innerWidth * 100;
+            const deltaY = (e.clientY - startY) / window.innerHeight * 100;
+            let newLeft = currentLeft + deltaX;
+            let newTop = currentTop + deltaY;
+
+            const videoRect = video.getBoundingClientRect();
+            const maxLeft = (window.innerWidth - videoRect.width / 2) / window.innerWidth * 100;
+            const minLeft = (videoRect.width / 2) / window.innerWidth * 100;
+            const maxTop = (window.innerHeight - videoRect.height / 2) / window.innerHeight * 100;
+            const minTop = (videoRect.height / 2) / window.innerHeight * 100;
+
+            newLeft = Math.max(minLeft, Math.min(newLeft, maxLeft));
+            newTop = Math.max(minTop, Math.min(newTop, maxTop));
+
+            video.style.left = `${newLeft}%`;
+            video.style.top = `${newTop}%`;
+        });
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isDragging) {
+            isDragging = false;
+            video.style.transition = 'left 0.1s ease-out, top 0.1s ease-out';
+            cancelAnimationFrame(rafId);
+        }
+    });
+
+    video.addEventListener('timeupdate', () => {
+        const percentage = (video.currentTime / video.duration) * 100;
+        progressFill.style.width = `${percentage}%`;
+    });
+
+    progress.addEventListener('click', (e) => {
+        const rect = progress.getBoundingClientRect();
+        const percentage = (e.clientX - rect.left) / rect.width;
+        video.currentTime = percentage * video.duration;
+    });
+
+    video.addEventListener('click', () => {
+        toggleVideoPlayPause(video, playBtn, pauseBtn);
+    });
+
+    playBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleVideoPlayPause(video, playBtn, pauseBtn, true);
+    });
+
+    pauseBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleVideoPlayPause(video, playBtn, pauseBtn, false);
+    });
+}
+
+function toggleVideoPlayPause(video, playBtn, pauseBtn, forcePlay = null) {
+    const shouldPlay = forcePlay !== null ? forcePlay : video.paused;
+    if (shouldPlay) {
+        video.play();
+        playBtn.style.display = 'none';
+        pauseBtn.style.display = 'block';
+        playing = true;
+        playIcon.classList.remove('active');
+        playIcon.classList.add('inactive');
+        pauseIcon.classList.remove('inactive');
+        pauseIcon.classList.add('active');
+        notchPlay.style.display = "none";
+        notchPause.style.display = "inline";
+        notch.classList.remove('paused');
+        notch.classList.add('playing');
+    } else {
+        video.pause();
+        playBtn.style.display = 'block';
+        pauseBtn.style.display = 'none';
+        playing = false;
+        pauseIcon.classList.remove('active');
+        pauseIcon.classList.add('inactive');
+        playIcon.classList.remove('inactive');
+        playIcon.classList.add('active');
+        notchPlay.style.display = "inline";
+        notchPause.style.display = "none";
+        notch.classList.remove('playing');
+        notch.classList.add('paused');
     }
 }
 
@@ -254,17 +306,15 @@ async function loadMatchingLrc(path) {
 async function loadSongInfo(file) {
     if (!file) return;
 
-    // 默认信息
     const defaultInfo = {
         title: "未知标题",
-        artist: "未知艺术家",
+        artist: file.type.startsWith("video/") ? "视频" : "未知艺术家",
         album: "未知专辑",
-        duration: formatTime(audioPlayer.duration || 0),
+        duration: formatTime(currentPlayer?.duration || 0),
         fileType: file.name.split('.').pop(),
         fileLocation: file.webkitRelativePath || file.name
     };
 
-    // 初始化 UI
     songInfo.innerHTML = `
         <p><strong>标题</strong>: ${defaultInfo.title}</p>
         <p><strong>艺术家</strong>: ${defaultInfo.artist}</p>
@@ -277,13 +327,12 @@ async function loadSongInfo(file) {
     notchLyrics.textContent = "";
     setupScrollbar(songInfo);
 
-    // 如果 jsmediatags 可用，尝试读取元数据
-    if (window.jsmediatags) {
+    if (window.jsmediatags && file.type.startsWith("audio/")) {
         try {
             const tag = await new Promise((resolve, reject) => {
                 jsmediatags.read(file, {
-                    onSuccess: (tag) => resolve(tag),
-                    onError: (error) => reject(error)
+                    onSuccess: resolve,
+                    onError: reject
                 });
             });
             const tags = tag.tags;
@@ -291,7 +340,7 @@ async function loadSongInfo(file) {
                 title: tags.title || defaultInfo.title,
                 artist: tags.artist || defaultInfo.artist,
                 album: tags.album || defaultInfo.album,
-                duration: formatTime(audioPlayer.duration || 0),
+                duration: formatTime(currentPlayer?.duration || 0),
                 fileType: file.name.split('.').pop(),
                 fileLocation: file.webkitRelativePath || file.name
             };
@@ -306,11 +355,8 @@ async function loadSongInfo(file) {
             `;
             setupScrollbar(songInfo);
         } catch (error) {
-            console.warn("无法读取元数据：", error.info || error);
-            // 对于不受支持的格式，保留默认信息即可
+            console.warn("无法读取元数据：", error);
         }
-    } else {
-        console.warn("jsmediatags 未加载，无法读取元数据");
     }
 }
 
@@ -325,9 +371,11 @@ function updatePlaylist() {
                     <div class="album-title">${album.name.split('/').slice(-1)[0]}</div>
                 </div>
                 <ul class="album-songs">
-                    ${album.songs.map((song, songIndex) => {
-            const path = song.webkitRelativePath || song.name;
-            return `<li data-path="${path}" data-index="${albumIndex}-${songIndex}">${path.split('/').pop()}</li>`;
+                    ${album.media.map((media, mediaIndex) => {
+            const path = media.webkitRelativePath || media.name;
+            const isVideo = media.type.startsWith("video/");
+            const icon = isVideo ? '<i class="fas fa-video"></i>' : '<i class="fas fa-music"></i>';
+            return `<li data-path="${path}" data-index="${albumIndex}-${mediaIndex}">${icon} ${path.split('/').pop()}</li>`;
         }).join('')}
                 </ul>
             </div>
@@ -389,43 +437,24 @@ function setupScrollbar(container) {
     updateScrollbar();
 }
 
-audioPlayer.addEventListener("loadedmetadata", () => {
-    endTime.textContent = formatTime(audioPlayer.duration);
-    const savedVolume = localStorage.getItem('volume') || 1;
-    volumeProcess.style.width = `${savedVolume * 100}%`;
-    notchVolumeProcess.style.width = `${savedVolume * 100}%`;
-    audioPlayer.volume = savedVolume;
-    volumeValue.textContent = `${Math.round(savedVolume * 100)}%`;
-    speedProcess.style.width = "33.33%";
-    audioPlayer.playbackRate = 1.0;
-    speedValue.textContent = "1.0x";
-    setupScrollbar(progressBar);
-    setupScrollbar(notchProgressContainer);
-    setupScrollbar(volumeBar);
-    setupScrollbar(speedBar);
-    setupScrollbar(notchVolumeBar);
-});
-
-audioPlayer.addEventListener("timeupdate", () => {
-    if (!audioPlayer.duration) return;
+function updateTimeHandler() {
+    if (!currentPlayer || !currentPlayer.duration) return;
     const now = performance.now();
     if (now - lastUpdateTime < 100) return;
     lastUpdateTime = now;
 
-    const percentage = (audioPlayer.currentTime / audioPlayer.duration) * 100;
+    const percentage = (currentPlayer.currentTime / currentPlayer.duration) * 100;
     progress.style.width = `${percentage}%`;
     notchProgress.style.width = `${percentage}%`;
-    startTime.textContent = formatTime(audioPlayer.currentTime);
-    endTime.textContent = formatTime(audioPlayer.duration - audioPlayer.currentTime);
-    notchTime.innerHTML = `<span class="current-time">${formatTime(audioPlayer.currentTime)}</span><span class="total-time">${formatTime(audioPlayer.duration)}</span>`;
-    if (playing) {
+    startTime.textContent = formatTime(currentPlayer.currentTime);
+    endTime.textContent = formatTime(currentPlayer.duration - currentPlayer.currentTime);
+    notchTime.innerHTML = `<span class="current-time">${formatTime(currentPlayer.currentTime)}</span><span class="total-time">${formatTime(currentPlayer.duration)}</span>`;
+    if (playing && currentPlayer === audioPlayer) {
         requestAnimationFrame(updateLyrics);
         requestAnimationFrame(updateWaveform);
         updateNotchLyrics();
     }
-});
-
-audioPlayer.addEventListener("ended", playNextSong);
+}
 
 function playNextSong() {
     if (!playlistData.length) return;
@@ -438,7 +467,7 @@ function playNextSong() {
             nextIndex = currentIndex + 1;
             if (nextIndex >= playlistData.length) {
                 togglePlayPause(false);
-                audioPlayer.currentTime = 0;
+                currentPlayer.currentTime = 0;
                 resetPlaybackUI();
                 return;
             }
@@ -447,7 +476,7 @@ function playNextSong() {
             nextIndex = currentIndex - 1;
             if (nextIndex < 0) {
                 togglePlayPause(false);
-                audioPlayer.currentTime = 0;
+                currentPlayer.currentTime = 0;
                 resetPlaybackUI();
                 return;
             }
@@ -467,7 +496,7 @@ function playNextSong() {
 
     const nextFile = playlistData[nextIndex].file;
     if (nextFile) {
-        audioPlayer.pause();
+        currentPlayer.pause();
         resetPlaybackUI();
         processSingleFile(nextFile, URL.createObjectURL(nextFile), true);
     }
@@ -477,7 +506,7 @@ function resetPlaybackUI() {
     progress.style.width = '0%';
     notchProgress.style.width = '0%';
     startTime.textContent = '0:00';
-    notchTime.textContent = `0:00 / ${formatTime(audioPlayer.duration || 0)}`;
+    notchTime.innerHTML = `<span class="current-time">0:00</span><span class="total-time">${formatTime(currentPlayer?.duration || 0)}</span>`;
     playIcon.classList.remove('inactive');
     playIcon.classList.add('active');
     pauseIcon.classList.remove('active');
@@ -519,18 +548,18 @@ prevBtn?.addEventListener("click", () => {
 
     const prevFile = playlistData[prevIndex].file;
     if (prevFile) {
-        audioPlayer.pause();
+        currentPlayer.pause();
         resetPlaybackUI();
         processSingleFile(prevFile, URL.createObjectURL(prevFile), true);
     }
 });
 
 function togglePlayPause(isPlaying) {
-    if (isPlaying === playing) return;
+    if (!currentPlayer || isPlaying === playing) return;
     playing = isPlaying;
 
     if (isPlaying) {
-        audioPlayer.play().then(() => {
+        currentPlayer.play().then(() => {
             playIcon.classList.remove('active');
             playIcon.classList.add('inactive');
             pauseIcon.classList.remove('inactive');
@@ -544,7 +573,7 @@ function togglePlayPause(isPlaying) {
             playing = false;
         });
     } else {
-        audioPlayer.pause();
+        currentPlayer.pause();
         pauseIcon.classList.remove('active');
         pauseIcon.classList.add('inactive');
         playIcon.classList.remove('inactive');
@@ -597,14 +626,9 @@ document.addEventListener("mouseup", () => activeDragBar = null);
 
 notch?.addEventListener('mouseenter', () => {
     notch.classList.add('expanded');
-    checkTitleOverflow();
-    checkLyricsOverflow();
 });
-
 notch?.addEventListener('mouseleave', () => {
     notch.classList.remove('expanded');
-    checkTitleOverflow();
-    checkLyricsOverflow();
 });
 
 playlistToggle?.addEventListener('click', togglePlaylist);
@@ -645,15 +669,15 @@ document.addEventListener('keydown', (event) => {
     if (event.key === 'Tab') {
         event.preventDefault();
         togglePlaylist();
-    } else if (event.key === ' ') {
+    } else if (event.key === ' ' && currentPlayer) {
         event.preventDefault();
         togglePlayPause(!playing);
-    } else if (event.key === 'ArrowRight' && !event.ctrlKey) {
+    } else if (event.key === 'ArrowRight' && !event.ctrlKey && currentPlayer) {
         event.preventDefault();
-        audioPlayer.currentTime = Math.min(audioPlayer.currentTime + 5, audioPlayer.duration);
-    } else if (event.key === 'ArrowLeft' && !event.ctrlKey) {
+        currentPlayer.currentTime = Math.min(currentPlayer.currentTime + 5, currentPlayer.duration);
+    } else if (event.key === 'ArrowLeft' && !event.ctrlKey && currentPlayer) {
         event.preventDefault();
-        audioPlayer.currentTime = Math.max(audioPlayer.currentTime - 5, 0);
+        currentPlayer.currentTime = Math.max(currentPlayer.currentTime - 5, 0);
     } else if (event.ctrlKey && event.key === 'ArrowRight' && playlist.style.display !== 'block') {
         event.preventDefault();
         playNextSong();
@@ -664,56 +688,56 @@ document.addEventListener('keydown', (event) => {
 });
 
 function updateProgress(event) {
-    if (Number.isNaN(audioPlayer.duration) || !progressBar) return;
+    if (!currentPlayer || Number.isNaN(currentPlayer.duration) || !progressBar) return;
     const rect = progressBar.getBoundingClientRect();
     const percentage = Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1);
     progress.style.width = `${percentage * 100}%`;
     notchProgress.style.width = `${percentage * 100}%`;
-    audioPlayer.currentTime = percentage * audioPlayer.duration;
+    currentPlayer.currentTime = percentage * currentPlayer.duration;
     setupScrollbar(progressBar);
 }
 
 function updateNotchProgress(event) {
-    if (Number.isNaN(audioPlayer.duration) || !notchProgressContainer) return;
+    if (!currentPlayer || Number.isNaN(currentPlayer.duration) || !notchProgressContainer) return;
     const rect = notchProgressContainer.getBoundingClientRect();
     const percentage = Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1);
     notchProgress.style.width = `${percentage * 100}%`;
     progress.style.width = `${percentage * 100}%`;
-    audioPlayer.currentTime = percentage * audioPlayer.duration;
+    currentPlayer.currentTime = percentage * currentPlayer.duration;
     setupScrollbar(notchProgressContainer);
 }
 
 function updateVolume(event) {
-    if (!volumeBar) return;
+    if (!volumeBar || !currentPlayer) return;
     const rect = volumeBar.getBoundingClientRect();
     const percentage = Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1);
     volumeProcess.style.width = `${percentage * 100}%`;
     notchVolumeProcess.style.width = `${percentage * 100}%`;
-    audioPlayer.volume = percentage;
+    currentPlayer.volume = percentage;
     volumeValue.textContent = `${Math.round(percentage * 100)}%`;
     localStorage.setItem('volume', percentage);
     setupScrollbar(volumeBar);
 }
 
 function updateNotchVolume(event) {
-    if (!notchVolumeBar) return;
+    if (!notchVolumeBar || !currentPlayer) return;
     const rect = notchVolumeBar.getBoundingClientRect();
     const percentage = Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1);
     notchVolumeProcess.style.width = `${percentage * 100}%`;
     volumeProcess.style.width = `${percentage * 100}%`;
-    audioPlayer.volume = percentage;
+    currentPlayer.volume = percentage;
     volumeValue.textContent = `${Math.round(percentage * 100)}%`;
     localStorage.setItem('volume', percentage);
     setupScrollbar(notchVolumeBar);
 }
 
 function updateSpeed(event) {
-    if (!speedBar) return;
+    if (!speedBar || !currentPlayer) return;
     const rect = speedBar.getBoundingClientRect();
     const percentage = Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1);
     speedProcess.style.width = `${percentage * 100}%`;
     const speed = 0.5 + percentage * 1.5;
-    audioPlayer.playbackRate = speed;
+    currentPlayer.playbackRate = speed;
     speedValue.textContent = `${speed.toFixed(1)}x`;
 }
 
@@ -736,104 +760,271 @@ function parseLrc(lrcContent) {
 }
 
 function updateLyrics() {
-    if (!lyrics.length || !lyricsElement || !playing) return;
-    const currentTime = audioPlayer.currentTime;
+    if (!lyrics.length || !lyricsElement || currentPlayer !== audioPlayer) {
+        lyricsElement.style.transform = 'translateY(0)'; // 重置 transform
+        return;
+    }
+
     const lyricLines = lyricsElement.children;
-    let activeIndex = 0;
+    if (playing) {
+        // 播放时动态滚动
+        const currentTime = currentPlayer.currentTime;
+        let activeIndex = 0;
 
-    for (let i = 0; i < lyrics.length; i++) {
-        if (currentTime >= lyrics[i].time) activeIndex = i;
-        else break;
-    }
-
-    for (let i = 0; i < lyricLines.length; i++) {
-        const line = lyricLines[i];
-        const distance = Math.abs(activeIndex - i);
-        if (distance <= 8) {
-            if (i === activeIndex) {
-                line.classList.add("highlight");
-                line.style.filter = "none";
-                line.style.marginLeft = "0";
-                line.style.visibility = "visible";
-            } else {
-                line.classList.remove("highlight");
-                line.style.filter = `blur(${distance * 0.8}px)`;
-                line.style.marginLeft = `${distance * 2}px`;
-                line.style.visibility = "visible";
-            }
-        } else {
-            line.style.visibility = "hidden";
+        for (let i = 0; i < lyrics.length; i++) {
+            if (currentTime >= lyrics[i].time) activeIndex = i;
+            else break;
         }
-    }
 
-    const activeLine = lyricLines[activeIndex];
-    if (activeLine) {
-        const containerHeight = document.querySelector(".lyricscontainer").clientHeight;
-        const activeLineOffset = activeLine.offsetTop;
-        const offset = (containerHeight / 2) - activeLineOffset - 0.1 * containerHeight;
-        lyricsElement.style.top = `${offset}px`;
+        for (let i = 0; i < lyricLines.length; i++) {
+            const line = lyricLines[i];
+            const distance = Math.abs(activeIndex - i);
+            if (distance <= 8) {
+                if (i === activeIndex) {
+                    line.classList.add("highlight");
+                    line.style.filter = "none";
+                    line.style.marginLeft = "0";
+                    line.style.visibility = "visible";
+                } else {
+                    line.classList.remove("highlight");
+                    line.style.filter = `blur(${distance * 0.8}px)`;
+                    line.style.marginLeft = `${distance * 2}px`;
+                    line.style.visibility = "visible";
+                }
+            } else {
+                line.style.visibility = "hidden";
+            }
+        }
+
+        const activeLine = lyricLines[activeIndex];
+        if (activeLine) {
+            const containerHeight = lyricsContainer.clientHeight;
+            const lineHeight = activeLine.offsetHeight;
+            const lineTop = activeLine.offsetTop;
+            // 计算偏移量，使高亮歌词垂直居中
+            const scrollOffset = lineTop - (containerHeight / 2) + (lineHeight / 2);
+            lyricsElement.style.transform = `translateY(${-scrollOffset}px)`;
+        }
+    } else {
+        // 未播放时保持居中
+        lyricsElement.style.transform = 'translateY(0)';
+        for (let i = 0; i < lyricLines.length; i++) {
+            lyricLines[i].classList.remove("highlight");
+            lyricLines[i].style.filter = "none";
+            lyricLines[i].style.marginLeft = "0";
+            lyricLines[i].style.visibility = "visible";
+            lyricLines[i].style.opacity = "1"; // 初始状态全显示
+        }
     }
 }
 
 function updateNotchLyrics() {
-    if (!lyrics.length || !notch.classList.contains('expanded')) {
-        notchLyrics.style.display = 'none';
+    const now = performance.now();
+    if (now - lastLyricUpdateTime < 200) return; // 限制更新频率为每200ms一次
+    lastLyricUpdateTime = now;
+
+    if (currentFile && currentFile.file.type.startsWith("video/")) {
+        if (notchLyrics.textContent !== "视频播放中") {
+            notchLyrics.textContent = "视频播放中";
+            notchLyrics.style.display = 'block';
+        }
         return;
     }
 
-    const currentTime = audioPlayer.currentTime;
-    const activeIndex = lyrics.findIndex(lyric => lyric.time > currentTime) - 1;
-    if (activeIndex >= 0 && activeIndex < lyrics.length) {
-        notchLyrics.textContent = lyrics[activeIndex].text;
-        notchLyrics.style.display = 'block';
-        checkLyricsOverflow();
-    } else {
-        notchLyrics.style.display = 'none';
-    }
-}
-
-function checkLyricsOverflow() {
-    const lyricsWidth = notchLyrics.scrollWidth;
-    const containerWidth = notchLyrics.parentElement.clientWidth;
-    const isExpanded = notch.classList.contains('expanded');
-
-    if (isExpanded && lyricsWidth > containerWidth) {
-        notchLyrics.classList.add('marquee');
-        const duration = Math.max(10, lyricsWidth / 20);
-        notchLyrics.style.animationDuration = `${duration}s`;
-    } else {
-        notchLyrics.classList.remove('marquee');
-        notchLyrics.style.animationDuration = '10s';
-    }
-}
-
-function checkTitleOverflow() {
-    const titleWidth = notchTitle.scrollWidth;
-    const containerWidth = notchTitle.parentElement.clientWidth;
-    const isExpanded = notch.classList.contains('expanded');
-
-    if (titleWidth > containerWidth) {
-        if (isExpanded) {
-            notchTitle.classList.add('marquee');
-            const duration = Math.max(8, titleWidth / 20);
-            notchTitle.style.animationDuration = `${duration}s`;
-        } else {
-            notchTitle.classList.remove('marquee');
+    if (lyrics.length && playing && currentPlayer === audioPlayer) {
+        const currentTime = currentPlayer.currentTime;
+        let activeLyric = "";
+        for (let i = 0; i < lyrics.length; i++) {
+            if (currentTime >= lyrics[i].time) {
+                activeLyric = lyrics[i].text;
+            } else {
+                break;
+            }
+        }
+        if (notchLyrics.textContent !== activeLyric) {
+            notchLyrics.textContent = activeLyric;
+            notchLyrics.style.display = activeLyric ? 'block' : 'none';
         }
     } else {
-        notchTitle.classList.remove('marquee');
-        notchTitle.style.animationDuration = '8s';
+        if (notchLyrics.textContent !== "") {
+            notchLyrics.textContent = "";
+            notchLyrics.style.display = 'none';
+        }
     }
+}
+
+
+async function processSingleFile(file, src, autoPlay = true) {
+    try {
+        if (currentPlayer) {
+            currentPlayer.pause();
+            currentPlayer.removeEventListener('timeupdate', updateTimeHandler);
+            currentPlayer.removeEventListener('ended', playNextSong);
+            resetPlaybackUI();
+        }
+
+        currentFile = { file, src };
+        const isVideo = file.type.startsWith("video/");
+
+        // 清除 lyricscontainer 的内容
+        lyricsContainer.innerHTML = '';
+
+        if (isVideo) {
+            if (!videoPlayer) {
+                videoPlayer = document.createElement('video');
+                videoPlayer.classList.add('video-player');
+                videoPlayer.controls = false;
+                const controls = document.createElement('div');
+                controls.className = 'video-controls';
+                controls.innerHTML = `
+                    <div class="video-progress">
+                        <div class="video-progress-fill"></div>
+                    </div>
+                    <div class="video-control-buttons">
+                        <i class="fas fa-play video-play" style="font-size: 24px; color: white;"></i>
+                        <i class="fas fa-pause video-pause" style="font-size: 24px; color: white; display: none;"></i>
+                    </div>
+                `;
+                videoPlayer.appendChild(controls);
+            }
+            videoPlayer.src = src;
+            currentPlayer = videoPlayer;
+            // 将 videoPlayer 添加到 lyricscontainer
+            lyricsContainer.appendChild(videoPlayer);
+            // 确保 lyricsElement 隐藏
+            lyricsElement.style.display = 'none';
+            setupVideoControls(videoPlayer);
+        } else {
+            audioPlayer.src = src;
+            currentPlayer = audioPlayer;
+            // 将 lyricsElement 添加到 lyricscontainer
+            lyricsContainer.appendChild(lyricsElement);
+            lyricsElement.style.display = 'flex'; // 使用 flex 确保歌词布局正确
+            await loadMatchingLrc(file.webkitRelativePath || file.name);
+        }
+
+        currentPlayer.currentTime = 0;
+        resetPlaybackUI();
+
+        const savedVolume = localStorage.getItem('volume') || 1;
+        currentPlayer.volume = parseFloat(savedVolume);
+        volumeProcess.style.width = `${savedVolume * 100}%`;
+        notchVolumeProcess.style.width = `${savedVolume * 100}%`;
+        volumeValue.textContent = `${Math.round(savedVolume * 100)}%`;
+
+        currentPlayer.playbackRate = 1;
+        speedProcess.style.width = `33.33%`;
+        speedValue.textContent = `1.0x`;
+
+        let filename = file.name.split('.').slice(0, -1).join('.');
+        if (file.type.startsWith("audio/") && window.jsmediatags) {
+            try {
+                const tag = await new Promise((resolve, reject) => {
+                    jsmediatags.read(file, {
+                        onSuccess: resolve,
+                        onError: reject
+                    });
+                });
+                filename = tag.tags.title || filename;
+            } catch (error) {
+                console.warn("无法读取音频元数据：", error);
+            }
+        }
+        audioName.textContent = filename;
+        notchTitle.textContent = filename;
+
+        const album = albums.find(a => a.media.some(m => m === file));
+        let cover = album?.cover;
+        if (!cover && isVideo) {
+            cover = await captureVideoFrame(file);
+        }
+        if (cover) {
+            const coverSrc = cover.url || URL.createObjectURL(cover);
+            svgcontainer.style.backgroundImage = `url(${coverSrc})`;
+            svgcontainer.style.backgroundSize = "cover";
+            svgcontainer.style.backgroundPosition = "center";
+            notchAlbumArt.classList.remove('flip');
+            notchAlbumArt.style.backgroundImage = `url(${coverSrc})`;
+            void notchAlbumArt.offsetWidth;
+            notchAlbumArt.classList.add('flip');
+            justSvg.style.opacity = "0";
+            updateBackground(coverSrc);
+        } else {
+            svgcontainer.style.backgroundImage = "none";
+            svgcontainer.style.backgroundColor = "#e8e8e8";
+            notchAlbumArt.classList.remove('flip');
+            notchAlbumArt.style.backgroundImage = "";
+            justSvg.style.opacity = "1";
+            updateBackground(null);
+        }
+
+        await loadSongInfo(file);
+        highlightCurrentSong();
+
+        currentPlayer.addEventListener('loadedmetadata', () => {
+            endTime.textContent = formatTime(currentPlayer.duration || 0);
+            notchTime.innerHTML = `<span class="current-time">0:00</span><span class="total-time">${formatTime(currentPlayer.duration || 0)}</span>`;
+            if (autoPlay) {
+                togglePlayPause(true);
+            }
+        }, { once: true });
+
+        currentPlayer.addEventListener('timeupdate', updateTimeHandler);
+        currentPlayer.addEventListener('ended', playNextSong);
+    } catch (error) {
+        console.error("处理文件失败：", error);
+        audioName.textContent = "加载失败，请检查文件格式";
+        notchTitle.textContent = "加载失败，请检查文件格式";
+    }
+}
+
+async function processFolder(files) {
+    const mediaFiles = Array.from(files).filter(file =>
+        file.type.startsWith("audio/") || file.type.startsWith("video/")
+    );
+    const lrcFiles = Array.from(files).filter(file => file.name.toLowerCase().endsWith(".lrc"));
+    const imageFiles = Array.from(files).filter(file => file.type.startsWith("image/"));
+    const albumMap = {};
+
+    mediaFiles.forEach(file => {
+        const path = file.webkitRelativePath || file.name;
+        const albumPath = path.split('/').slice(0, -1).join('/');
+        if (!albumMap[albumPath]) albumMap[albumPath] = { media: [], cover: null };
+        albumMap[albumPath].media.push(file);
+    });
+
+    imageFiles.forEach(image => {
+        const path = image.webkitRelativePath || image.name;
+        const albumPath = path.split('/').slice(0, -1).join('/');
+        if (albumMap[albumPath] && image.name.toLowerCase() === "default.png") {
+            albumMap[albumPath].cover = image;
+        }
+    });
+
+    albums = Object.keys(albumMap).map(albumPath => ({
+        name: albumPath,
+        media: albumMap[albumPath].media,
+        cover: albumMap[albumPath].cover
+    }));
+
+    playlistData = albums.flatMap(album => album.media.map(file => ({
+        file,
+        name: (file.webkitRelativePath || file.name).split('/').pop()
+    })));
+    allLrcFiles = lrcFiles.map(file => file.webkitRelativePath || file.name);
+
+    updatePlaylist();
+    if (mediaFiles.length) await processSingleFile(mediaFiles[0], URL.createObjectURL(mediaFiles[0]), true);
 }
 
 function updateWaveform() {
-    if (!analyser || !dataArray || !playing) {
+    if (!analyser || !dataArray || !playing || currentPlayer !== audioPlayer) {
         waveformBars.forEach(bar => bar.style.transform = 'scaleY(0.2)');
         return;
     }
 
     analyser.getByteTimeDomainData(dataArray);
-    const barCount = 6;
+    const barCount = waveformBars.length;
     const step = Math.floor(dataArray.length / barCount);
 
     waveformBars.forEach((bar, i) => {
@@ -856,13 +1047,24 @@ function updateWaveform() {
         bar.style.transform = `scaleY(${newScale})`;
     });
 
-    if (playing) {
+    if (playing && currentPlayer === audioPlayer) {
         requestAnimationFrame(updateWaveform);
     }
 }
 
 function updateBackground(imageSrc) {
     const background = document.querySelector('.background');
+    const backgroundMode = localStorage.getItem('backgroundMode') || 'color';
+
+    if (backgroundMode === 'image' && imageSrc) {
+        background.style.backgroundImage = `url(${imageSrc})`;
+        background.style.backgroundSize = "cover";
+        background.style.backgroundPosition = "center";
+        background.style.filter = "blur(30px) brightness(0.5)";
+        applyWaveformGradient(['#fff']);
+        return;
+    }
+
     if (!imageSrc) {
         background.style.backgroundColor = 'var(--background)';
         background.style.backgroundImage = '';
@@ -889,6 +1091,9 @@ function updateBackground(imageSrc) {
             radial-gradient(closest-side, rgba(${colors[4].join(',')}, 0.9), rgba(${colors[4].join(',')}, 0)),
             radial-gradient(closest-side, rgba(${colors[0].join(',')}, 0.9), rgba(${colors[0].join(',')}, 0))
         `;
+        background.style.backgroundSize = "130vmax 130vmax, 80vmax 80vmax, 90vmax 90vmax, 110vmax 110vmax, 90vmax 90vmax";
+        background.style.backgroundPosition = "-80vmax -80vmax, 60vmax -30vmax, 10vmax 10vmax, -30vmax -10vmax, 50vmax 50vmax";
+        background.style.filter = "blur(10px)";
         applyWaveformGradient(colors.map(c => `rgb(${c.join(',')})`));
     };
     img.src = imageSrc;
@@ -919,35 +1124,57 @@ function extractColors(data) {
 }
 
 function highlightCurrentSong() {
-    if (!currentFile || !currentFile.file) return;
-    document.querySelectorAll('.album-songs li').forEach(li => li.classList.remove('active'));
-    const path = currentFile.file.webkitRelativePath || currentFile.file.name;
-    const currentLi = document.querySelector(`.album-songs li[data-path="${path}"]`);
-    if (currentLi) currentLi.classList.add('active');
+    document.querySelectorAll('.album-songs li').forEach(li => {
+        li.classList.remove('active');
+        if (li.dataset.path === (currentFile?.file?.webkitRelativePath || currentFile?.file?.name)) {
+            li.classList.add('active');
+        }
+    });
 }
 
 function scrollToCurrentSong() {
-    const currentSong = playlistItems.querySelector('.album-songs li.active');
-    if (currentSong) {
-        const albumSongs = currentSong.closest('.album-songs');
-        if (!albumSongs.classList.contains('visible')) {
-            albumSongs.classList.add('visible');
-            albumSongs.style.maxHeight = `${albumSongs.scrollHeight}px`;
+    const activeSong = document.querySelector('.album-songs li.active');
+    if (activeSong) {
+        const album = activeSong.closest('.album');
+        const songList = activeSong.closest('.album-songs');
+        if (!songList.classList.contains('visible')) {
+            songList.classList.add('visible');
+            songList.style.maxHeight = `${songList.scrollHeight}px`;
         }
-        setTimeout(() => currentSong.scrollIntoView({ behavior: 'smooth', block: 'center' }), 200);
+        setTimeout(() => {
+            activeSong.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            album.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 100);
     }
 }
 
 document.addEventListener('visibilitychange', () => {
-    if (document.hidden && !audioPlayer.paused) requestAnimationFrame(updateWaveform);
+    if (document.hidden && currentPlayer && !currentPlayer.paused && currentPlayer === audioPlayer) {
+        requestAnimationFrame(updateWaveform);
+    }
 });
 
 window.addEventListener('resize', () => {
-    checkTitleOverflow();
-    checkLyricsOverflow();
 });
 
-window.addEventListener('load', () => {
-    playbackMode = localStorage.getItem('playbackMode') || 'loop';
+document.addEventListener('DOMContentLoaded', () => {
+    const savedVolume = localStorage.getItem('volume') || 1;
+    volumeProcess.style.width = `${savedVolume * 100}%`;
+    notchVolumeProcess.style.width = `${savedVolume * 100}%`;
+    volumeValue.textContent = `${Math.round(savedVolume * 100)}%`;
+    if (currentPlayer) {
+        currentPlayer.volume = parseFloat(savedVolume);
+    }
     updateBackground(null);
+});
+
+window.addEventListener('message', (event) => {
+    if (event.data.type === 'updateSettings') {
+        const { playbackMode: newPlaybackMode, backgroundMode } = event.data;
+        playbackMode = newPlaybackMode;
+        localStorage.setItem('playbackMode', newPlaybackMode);
+        localStorage.setItem('backgroundMode', backgroundMode);
+        const coverSrc = notchAlbumArt.style.backgroundImage.match(/url\(["']?(.+)["']?\)/)?.[1];
+        updateBackground(coverSrc);
+    }
 });

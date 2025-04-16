@@ -15,12 +15,12 @@
     font-family: "SFPro", "PingFang", sans-serif;
     -webkit-user-select: none;
     user-select: none;
-    scrollbar-width: none; /* Firefox */
-    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
 }
 
 *::-webkit-scrollbar {
-    display: none; /* Chrome, Safari, Opera */
+    display: none;
 }
 
 :root {
@@ -152,18 +152,6 @@ input[type="file"] {
     transition: width 0.1s linear;
     filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.5));
 }
-
-/*
-.scrollbar {
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: 6px;
-    height: 100%;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 3px;
-}
-sb*/
 
 .scrollbar-thumb {
     position: absolute;
@@ -311,6 +299,8 @@ sb*/
     position: relative;
 }
 
+
+
 .lyricscontainer {
     width: 50vw;
     height: 100vh;
@@ -318,41 +308,41 @@ sb*/
     position: relative;
     z-index: 2;
     padding: 0 5vw;
+    display: flex; /* 确保容器支持灵活布局 */
+    align-items: center; /* 垂直居中内容 */
+    justify-content: center; /* 水平居中内容 */
 }
 
 .lyrics {
-    position: absolute;
-    top: 50%;
-    left: 0;
+    position: relative; /* 改为 relative，避免绝对定位干扰 */
     width: 100%;
-    transition: all 1s cubic-bezier(0.25, 0.8, 0.25, 1);
-    font-size: 24px;
-    line-height: 40px;
-    z-index: 2;
+    min-height: 100%; /* 确保歌词容器占满高度 */
     display: flex;
     flex-direction: column;
-    justify-content: center;
+    justify-content: center; /* 初始垂直居中 */
     align-items: center;
+    font-size: 24px;
+    line-height: 40px;
     color: #fff;
     overflow: hidden;
+    transition: transform 1s cubic-bezier(0.25, 0.8, 0.25, 1); /* 控制滚动动画 */
 }
 
 .lyrics div {
     margin: 2% 0;
     opacity: 0.3;
-    will-change: opacity, font-size, font-weight, margin-left, margin-top, margin-bottom;
+    will-change: opacity, font-size, font-weight, margin-left;
     transition: opacity 0.75s cubic-bezier(0.25, 0.8, 0.25, 1),
     font-size 0.75s cubic-bezier(0.25, 0.8, 0.25, 1),
     font-weight 0.75s cubic-bezier(0.25, 0.8, 0.25, 1),
-    margin-left 0.75s cubic-bezier(0.25, 0.8, 0.25, 1),
-    margin-top 1s cubic-bezier(0.25, 0.8, 0.25, 1),
-    margin-bottom 1s cubic-bezier(0.25, 0.8, 0.25, 1);
+    margin-left 0.75s cubic-bezier(0.25, 0.8, 0.25, 1);
     width: 100%;
     text-shadow: 0 1px 5px #000;
     font-weight: normal;
     font-size: 28px;
     word-wrap: break-word;
     white-space: normal;
+    text-align: center; /* 水平居中文本 */
 }
 
 .lyrics div.highlight {
@@ -361,6 +351,53 @@ sb*/
     font-size: 32px;
     font-weight: bold;
     filter: none;
+}
+
+.video-player {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 80%;
+    max-height: 80vh;
+    object-fit: contain;
+    background: #000;
+    resize: both;
+    overflow: auto;
+    cursor: move;
+    z-index: 10;
+}
+
+.video-controls {
+    position: absolute;
+    bottom: 0;
+    width: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.video-progress {
+    width: 100%;
+    height: 5px;
+    background: #555;
+    cursor: pointer;
+}
+
+.video-progress-fill {
+    width: 0;
+    height: 100%;
+    background: #1e90ff;
+    transition: width 0.1s linear;
+}
+
+.video-control-buttons {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    align-items: center;
 }
 
 .background {
@@ -600,7 +637,6 @@ sb*/
     line-height: 1.5;
 }
 
-/* Notch 样式 */
 #notch {
     position: fixed;
     top: 8px;
@@ -689,24 +725,21 @@ sb*/
     100% { transform: rotateY(360deg) scale(1); filter: blur(0px); box-shadow: none; }
 }
 
-/* 为歌曲切换时的专辑封面（notchAlbumArt.flip）添加更自然的过渡效果： */
 .album-art.flip {
     animation: doubleFlip 1s ease-in-out;
     transition: transform 0.3s ease, filter 0.3s ease;
 }
 
-/* 展开状态下的标题：完整展示，允许换行 */
 #notch.expanded .notch-title {
-    max-width: 100%; /* 移除宽度限制，充分利用notch-info的空间 */
-    white-space: normal; /* 允许换行 */
-    overflow: visible; /* 移除溢出隐藏 */
-    text-overflow: unset; /* 移除省略号 */
+    max-width: 100%;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
     font-size: 14px;
     line-height: 1.2;
-    animation: none; /* 禁用跑马灯动画 */
+    animation: none;
 }
 
-/* 未展开状态下的标题：保持单行省略 */
 .notch-title {
     display: block;
     white-space: nowrap;
@@ -717,7 +750,6 @@ sb*/
     max-width: 180px;
 }
 
-/* 确保notch-info有足够空间容纳标题 */
 .notch-info {
     flex: 1;
     margin-left: 10px;
@@ -727,68 +759,48 @@ sb*/
     flex-direction: column;
     justify-content: center;
     min-width: 80px;
-    max-width: none; /* 移除最大宽度限制 */
+    max-width: none;
 }
 
-/* 跑马灯效果 */
 .notch-title.marquee {
     animation: marquee 8s linear infinite;
 }
 
-/* 鼠标悬停暂停跑马灯（仅展开时生效） */
 #notch.expanded .notch-title:hover {
     animation-play-state: paused;
 }
 
-/* 未展开状态下的歌词：隐藏 */
 .notch-lyrics {
-    display: none; /* 默认隐藏 */
-}
-
-/* 展开状态下的歌词：显示并启用跑马灯 */
-#notch.expanded .notch-lyrics {
-    display: block;
+    display: none;
     font-size: 12px;
     margin-top: 4px;
     white-space: nowrap;
     overflow: hidden;
-    text-overflow: clip;
+    text-overflow: ellipsis;
     opacity: 0.7;
 }
 
-/* 跑马灯效果 */
-.notch-lyrics.marquee {
-    animation: marquee 10s linear infinite;
+#notch.expanded .notch-lyrics {
+    display: block;
+    white-space: normal; /* 扩展时允许换行 */
+    text-overflow: unset;
+    overflow-wrap: break-word;
 }
 
-/* 鼠标悬停暂停跑马灯（仅展开时生效） */
+/* 移除 marquee 动画相关代码 */
+@keyframes marquee {
+    /* 删除原有动画 */
+}
+
 #notch.expanded .notch-lyrics:hover {
     animation-play-state: paused;
 }
 
-/* 优化跑马灯动画，确保内容完整滚动 */
 @keyframes marquee {
-    0% {
-        transform: translateX(100%); /* 从右边开始 */
-    }
-    10% {
-        transform: translateX(0); /* 滚动到开头完全可见 */
-    }
-    90% {
-        transform: translateX(calc(-100%)); /* 滚动到结尾完全可见 */
-    }
-    100% {
-        transform: translateX(calc(-100% - 20px)); /* 额外滚动一段距离，确保结尾有空隙 */
-    }
-}
-
-.notch-artist {
-    font-size: 10px;
-    opacity: 0.7;
-}
-
-#notch.expanded .notch-artist {
-    font-size: 12px;
+    0% { transform: translateX(100%); }
+    10% { transform: translateX(0); }
+    90% { transform: translateX(calc(-100%)); }
+    100% { transform: translateX(calc(-100% - 20px)); }
 }
 
 #notch .progress-container {
@@ -815,18 +827,6 @@ sb*/
     transform: translateX(-50%);
     margin: 0;
     border-radius: 4px;
-}
-
-.notch-progress {
-    width: 0;
-    height: 100%;
-    background: linear-gradient(90deg, #fff, #ccc);
-    border-radius: 4px;
-    position: absolute;
-    top: 0;
-    left: 0;
-    transition: width 0.1s linear;
-    filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.5));
 }
 
 .notch-time {
@@ -881,35 +881,6 @@ sb*/
     display: flex;
 }
 
-.notch-volume-bar {
-    width: 60px;
-    height: 8px;
-    margin: 0;
-    position: relative;
-    cursor: pointer;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 4px;
-    overflow: hidden;
-    transition: height 0.2s ease, filter 0.2s ease;
-}
-
-.notch-volume-bar:hover {
-    height: 10px;
-    filter: brightness(1.2);
-}
-
-.notch-volume-process {
-    width: 0;
-    height: 100%;
-    background: linear-gradient(90deg, #fff, #ccc);
-    border-radius: 4px;
-    position: absolute;
-    top: 0;
-    left: 0;
-    transition: width 0.1s linear;
-    filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.5));
-}
-
 #notch .waveform {
     display: none;
     position: absolute;
@@ -935,3 +906,4 @@ sb*/
     will-change: transform;
     transition: transform 0.05s ease-out;
 }
+
