@@ -57,7 +57,7 @@ let audioContext, analyser, dataArray;
 let lastUpdateTime = 0;
 let currentPlayer = null;
 let videoPlayer = null;
-let lastLyricUpdateTime = 0; // 新增：用于歌词更新防抖
+let lastLyricUpdateTime = 0;
 
 function throttle(func, limit) {
     let inThrottle;
@@ -117,30 +117,71 @@ audioFileInput.addEventListener("change", async (event) => {
     }
 });
 
-function fragmentMatchScore(audioName, lrcName) {
-    const audioFragments = audioName.toLowerCase().split(/[-_\s()]+/).filter(Boolean);
-    const lrcFragments = lrcName.toLowerCase().split(/[-_\s()]+/).filter(Boolean);
+function fragmentMatchScore(audioName, lyricName) {
+    const normalize = (name) => {
+        return name.replace(/^\d+\s*[-_\.]?\s*/, '')
+            .replace(/\.mp3|\.flac|\.ogg|\.mp4|\.webm|\.lrc|\.srt$/i, '')
+            .toLowerCase()
+            .trim();
+    };
+
+    const normalizedAudio = normalize(audioName);
+    const normalizedLyric = normalize(lyricName);
+
+    if (normalizedAudio === normalizedLyric) return 1.0;
+
+    const audioFragments = normalizedAudio.split(/[-_\s()]+/).filter(Boolean);
+    const lyricFragments = normalizedLyric.split(/[-_\s()]+/).filter(Boolean);
+
     let score = 0;
-    const minLength = Math.min(audioFragments.length, lrcFragments.length);
+    const minLength = Math.min(audioFragments.length, lyricFragments.length);
     for (let i = 0; i < minLength; i++) {
-        if (audioFragments[i] === lrcFragments[i]) score += 1;
-        else if (audioFragments[i].includes(lrcFragments[i]) || lrcFragments[i].includes(audioFragments[i])) score += 0.5;
+        if (audioFragments[i] === lyricFragments[i]) score += 1;
+        else if (audioFragments[i].includes(lyricFragments[i]) || lyricFragments[i].includes(audioFragments[i])) score += 0.5;
     }
-    const overlap = audioFragments.filter(af => lrcFragments.some(lf => lf.includes(af) || af.includes(lf))).length;
+
+    const overlap = audioFragments.filter(af => lyricFragments.some(lf => lf.includes(af) || af.includes(lf))).length;
     score += overlap * 0.3;
-    return score / (Math.max(audioFragments.length, lrcFragments.length) || 1);
+
+    score += 0.2;
+
+    return score / (Math.max(audioFragments.length, lyricFragments.length) || 1);
 }
 
-function findBestMatchingLrc(audioPath, lrcFiles, albumPath) {
+function findBestMatchingLrc(audioPath, lyricFiles, albumPath) {
     const audioName = audioPath.split('/').pop().replace(/\.mp3|\.flac|\.ogg|\.mp4|\.webm$/i, '');
-    const matches = lrcFiles
-        .filter(lrcPath => lrcPath.split('/').slice(0, -1).join('/') === albumPath)
-        .map(lrcPath => {
-            const lrcName = lrcPath.split('/').pop().replace(/\.lrc$/i, '');
-            return { lrcPath, score: fragmentMatchScore(audioName, lrcName) };
+    const matches = lyricFiles
+        .filter(lyricPath => lyricPath.split('/').slice(0, -1).join('/') === albumPath)
+        .map(lyricPath => {
+            const lyricName = lyricPath.split('/').pop().replace(/\.lrc|\.srt$/i, '');
+            const score = fragmentMatchScore(audioName, lyricName);
+            return { lyricPath, score, isSrt: lyricPath.toLowerCase().endsWith('.srt') };
         })
-        .filter(match => match.score > 0.5);
-    return matches.length ? matches.reduce((best, current) => current.score > best.score ? current : best).lrcPath : null;
+        .filter(match => match.score >= 0.4);
+
+    if (!matches.length) {
+        console.warn(`No matching lyric file found for ${audioPath}`);
+        return null;
+    }
+
+    const normalizedAudio = audioName.replace(/^\d+\s*[-_\.]?\s*/, '').toLowerCase();
+    const exactMatch = matches.find(match => {
+        const normalizedLyric = match.lyricPath.split('/').pop().replace(/\.lrc|\.srt$/i, '')
+            .replace(/^\d+\s*[-_\.]?\s*/, '').toLowerCase();
+        return normalizedAudio === normalizedLyric;
+    });
+
+    if (exactMatch) return exactMatch.lyricPath;
+
+    const bestMatch = matches.reduce((best, current) => {
+        if (best.score === current.score) {
+            return current.isSrt ? best : current;
+        }
+        return current.score > best.score ? current : best;
+    }, matches[0]);
+
+    console.log(`Matched ${audioPath} with ${bestMatch.lyricPath} (score: ${bestMatch.score})`);
+    return bestMatch.lyricPath;
 }
 
 async function captureVideoFrame(file) {
@@ -284,31 +325,37 @@ async function loadMatchingLrc(path) {
     const albumPath = path.split('/').slice(0, -1).join('/');
     const bestMatch = findBestMatchingLrc(path, allLrcFiles, albumPath);
     if (bestMatch) {
-        const lrcFile = fileArray.find(f => (f?.webkitRelativePath || f?.name) === bestMatch);
-        if (lrcFile) {
+        const lyricFile = fileArray.find(f => (f?.webkitRelativePath || f?.name) === bestMatch);
+        if (lyricFile) {
             const reader = new FileReader();
             return new Promise((resolve) => {
                 reader.onload = (e) => {
-                    lyrics = parseLrc(e.target.result);
+                    const isSrt = bestMatch.toLowerCase().endsWith('.srt');
+                    lyrics = isSrt ? parseSrt(e.target.result) : parseLrc(e.target.result);
                     lyricsElement.innerHTML = lyrics.length
                         ? lyrics.map(line => `<div>${line.text}</div>`).join('')
                         : '<div>歌词文件为空</div>';
                     updateLyrics();
+                    updateNotchLyrics();
                     resolve();
                 };
                 reader.onerror = () => {
                     lyrics = [];
                     lyricsElement.innerHTML = '<div>无法加载歌词文件</div>';
+                    notchLyrics.textContent = "无法加载歌词文件";
                     updateLyrics();
+                    updateNotchLyrics();
                     resolve();
                 };
-                reader.readAsText(lrcFile);
+                reader.readAsText(lyricFile);
             });
         }
     }
     lyrics = [];
     lyricsElement.innerHTML = '<div>还没有歌词哦~</div>';
+    notchLyrics.textContent = "";
     updateLyrics();
+    updateNotchLyrics();
 }
 
 async function loadSongInfo(file) {
@@ -332,7 +379,6 @@ async function loadSongInfo(file) {
         <p><strong>文件位置</strong>: ${defaultInfo.fileLocation}</p>
         <div class="scrollbar"><div class="scrollbar-thumb"></div></div>
     `;
-    notchLyrics.textContent = "";
     setupScrollbar(songInfo);
 
     if (window.jsmediatags && file.type.startsWith("audio/")) {
@@ -767,8 +813,37 @@ function parseLrc(lrcContent) {
     return lrcArray;
 }
 
+function parseSrt(srtContent) {
+    const lines = srtContent.trim().split('\n\n').filter(Boolean);
+    const srtArray = [];
+    const timeRegex = /(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})/;
+
+    lines.forEach(block => {
+        const [index, timeLine, ...textLines] = block.split('\n');
+        const match = timeLine.match(timeRegex);
+        if (match) {
+            const startTime = parseSrtTime(match[1]);
+            const text = textLines.join(' ').trim();
+            if (text) srtArray.push({ time: startTime, text });
+        }
+    });
+
+    return srtArray;
+}
+
+function parseSrtTime(timeStr) {
+    const [hours, minutes, seconds] = timeStr.split(':');
+    const [secs, millis] = seconds.split(',');
+    return parseInt(hours, 10) * 3600 +
+        parseInt(minutes, 10) * 60 +
+        parseInt(secs, 10) +
+        parseInt(millis, 10) / 1000;
+}
+
 function updateLyrics() {
-    if (!lyrics.length || !lyricsElement || !playing) return;
+    if (!lyrics.length || !lyricsElement || !playing || currentPlayer !== audioPlayer) {
+        return;
+    }
     const currentTime = audioPlayer.currentTime;
     const lyricLines = lyricsElement.children;
     let activeIndex = 0;
@@ -806,9 +881,10 @@ function updateLyrics() {
         lyricsElement.style.top = `${offset}px`;
     }
 }
+
 function updateNotchLyrics() {
     const now = performance.now();
-    if (now - lastLyricUpdateTime < 200) return; // 限制更新频率为每200ms一次
+    if (now - lastLyricUpdateTime < 200) return;
     lastLyricUpdateTime = now;
 
     if (currentFile && currentFile.file.type.startsWith("video/")) {
@@ -853,9 +929,8 @@ async function processSingleFile(file, src, autoPlay = true) {
         currentFile = { file, src };
         const isVideo = file.type.startsWith("video/");
 
-        // 确保 lyricscontainer 只包含正确的元素
-        lyricsContainer.innerHTML = ''; // 清空容器
-        lyricsElement.style.display = 'none'; // 默认隐藏歌词
+        lyricsContainer.innerHTML = '';
+        lyricsElement.style.display = 'none';
         if (isVideo) {
             if (!videoPlayer) {
                 videoPlayer = document.createElement('video');
@@ -876,15 +951,15 @@ async function processSingleFile(file, src, autoPlay = true) {
             }
             videoPlayer.src = src;
             currentPlayer = videoPlayer;
-            lyricsContainer.appendChild(videoPlayer); // 添加视频播放器
+            lyricsContainer.appendChild(videoPlayer);
             setupVideoControls(videoPlayer);
-            lyricsElement.innerHTML = '<div>视频播放中</div>'; // 占位歌词
+            lyricsElement.innerHTML = '<div>视频播放中</div>';
         } else {
             audioPlayer.src = src;
             currentPlayer = audioPlayer;
-            lyricsContainer.appendChild(lyricsElement); // 添加歌词元素
-            lyricsElement.style.display = 'flex'; // 显示歌词
-            await loadMatchingLrc(file.webkitRelativePath || file.name); // 加载歌词
+            lyricsContainer.appendChild(lyricsElement);
+            lyricsElement.style.display = 'flex';
+            await loadMatchingLrc(file.webkitRelativePath || file.name);
         }
 
         currentPlayer.currentTime = 0;
@@ -966,7 +1041,9 @@ async function processFolder(files) {
     const mediaFiles = Array.from(files).filter(file =>
         file.type.startsWith("audio/") || file.type.startsWith("video/")
     );
-    const lrcFiles = Array.from(files).filter(file => file.name.toLowerCase().endsWith(".lrc"));
+    const lyricFiles = Array.from(files).filter(file =>
+        file.name.toLowerCase().endsWith(".lrc") || file.name.toLowerCase().endsWith(".srt")
+    );
     const imageFiles = Array.from(files).filter(file => file.type.startsWith("image/"));
     const albumMap = {};
 
@@ -995,7 +1072,7 @@ async function processFolder(files) {
         file,
         name: (file.webkitRelativePath || file.name).split('/').pop()
     })));
-    allLrcFiles = lrcFiles.map(file => file.webkitRelativePath || file.name);
+    allLrcFiles = lyricFiles.map(file => file.webkitRelativePath || file.name);
 
     updatePlaylist();
     if (mediaFiles.length) await processSingleFile(mediaFiles[0], URL.createObjectURL(mediaFiles[0]), true);
