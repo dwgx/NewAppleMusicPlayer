@@ -93,10 +93,10 @@ audioFileInput.addEventListener("change", async (event) => {
 });
 
 function fragmentMatchScore(audioName, lyricName) {
-    // Normalize by removing track numbers (e.g., "14" in "14 雷锋之死")
     const normalize = (name) => {
-        return name.replace(/^\d+\s*[-_\.]?\s*/, '') // Remove leading numbers and delimiters
-            .replace(/\.mp3|\.flac|\.ogg|\.mp4|\.webm|\.lrc|\.srt$/i, '')
+        return name
+            .replace(/^\d+\s*[-_\.]?\s*/, '') // 移除数字前缀
+            .replace(/\.mp3|\.flac|\.ogg|\.mp4|\.webm|\.lrc|\.srt$/i, '') // 移除扩展名
             .toLowerCase()
             .trim();
     };
@@ -104,45 +104,66 @@ function fragmentMatchScore(audioName, lyricName) {
     const normalizedAudio = normalize(audioName);
     const normalizedLyric = normalize(lyricName);
 
-    // Exact match after normalization gets max score
+    // 完全匹配优先
     if (normalizedAudio === normalizedLyric) return 1.0;
 
-    const audioFragments = normalizedAudio.split(/[-_\s()]+/).filter(Boolean);
-    const lyricFragments = normalizedLyric.split(/[-_\s()]+/).filter(Boolean);
+    // 计算字符串相似度（Levenshtein 距离）
+    const levenshteinDistance = (s1, s2) => {
+        const len1 = s1.length, len2 = s2.length;
+        const dp = Array(len1 + 1).fill(null).map(() => Array(len2 + 1).fill(0));
+        for (let i = 0; i <= len1; i++) dp[i][0] = i;
+        for (let j = 0; j <= len2; j++) dp[0][j] = j;
+        for (let i = 1; i <= len1; i++) {
+            for (let j = 1; j <= len2; j++) {
+                const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
+                dp[i][j] = Math.min(
+                    dp[i - 1][j] + 1, // 删除
+                    dp[i][j - 1] + 1, // 插入
+                    dp[i - 1][j - 1] + cost // 替换
+                );
+            }
+        }
+        return dp[len1][len2];
+    };
 
-    let score = 0;
-    const minLength = Math.min(audioFragments.length, lyricFragments.length);
-    for (let i = 0; i < minLength; i++) {
-        if (audioFragments[i] === lyricFragments[i]) score += 1;
-        else if (audioFragments[i].includes(lyricFragments[i]) || lyricFragments[i].includes(audioFragments[i])) score += 0.5;
+    const distance = levenshteinDistance(normalizedAudio, normalizedLyric);
+    const maxLength = Math.max(normalizedAudio.length, normalizedLyric.length);
+    const similarity = 1 - distance / maxLength;
+
+    // 额外加分：如果音频名包含歌词名或反之
+    let bonus = 0;
+    if (normalizedAudio.includes(normalizedLyric) || normalizedLyric.includes(normalizedAudio)) {
+        bonus += 0.3;
     }
 
-    const overlap = audioFragments.filter(af => lyricFragments.some(lf => lf.includes(af) || af.includes(lf))).length;
-    score += overlap * 0.3;
+    return similarity + bonus;
+}
 
-    // Boost score for same folder files
-    score += 0.2;
-
-    return score / (Math.max(audioFragments.length, lyricFragments.length) || 1);
+function containsChinese(str) {
+    return /[\u4E00-\u9FFF]/.test(str);
 }
 
 function findBestMatchingLrc(audioPath, lyricFiles, albumPath) {
     const audioName = audioPath.split('/').pop().replace(/\.mp3|\.flac|\.ogg|\.mp4|\.webm$/i, '');
+    const isAudioChinese = containsChinese(audioName);
+
     const matches = lyricFiles
         .filter(lyricPath => lyricPath.split('/').slice(0, -1).join('/') === albumPath)
         .map(lyricPath => {
             const lyricName = lyricPath.split('/').pop().replace(/\.lrc|\.srt$/i, '');
             const score = fragmentMatchScore(audioName, lyricName);
-            return { lyricPath, score, isSrt: lyricPath.toLowerCase().endsWith('.srt') };
+            const isLyricChinese = containsChinese(lyricName);
+            // 如果音频名是中文，优先匹配中文歌词文件
+            const languageBonus = (isAudioChinese && isLyricChinese) ? 0.2 : 0;
+            return { lyricPath, score: score + languageBonus, isSrt: lyricPath.toLowerCase().endsWith('.srt') };
         })
-        .filter(match => match.score >= 0.4); // Lowered threshold
+        .filter(match => match.score >= 0.6);
 
     if (!matches.length) {
         console.warn(`No matching lyric file found for ${audioPath}`);
         return null;
     }
 
-    // Prioritize exact matches after normalization
     const normalizedAudio = audioName.replace(/^\d+\s*[-_\.]?\s*/, '').toLowerCase();
     const exactMatch = matches.find(match => {
         const normalizedLyric = match.lyricPath.split('/').pop().replace(/\.lrc|\.srt$/i, '')
@@ -152,10 +173,9 @@ function findBestMatchingLrc(audioPath, lyricFiles, albumPath) {
 
     if (exactMatch) return exactMatch.lyricPath;
 
-    // Prefer .lrc over .srt if scores are equal
     const bestMatch = matches.reduce((best, current) => {
         if (best.score === current.score) {
-            return current.isSrt ? best : current; // Prefer .lrc
+            return current.isSrt ? best : current;
         }
         return current.score > best.score ? current : best;
     }, matches[0]);
