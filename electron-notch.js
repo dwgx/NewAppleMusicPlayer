@@ -1,4 +1,6 @@
-const { ipcRenderer } = require('electron');
+const notchBridge = window.notchBridge || {
+    setMouseEventsIgnore: () => {},
+};
 
 const audioFileInput = document.querySelector('.audiofile');
 const audioPlayer = document.querySelector('.player');
@@ -29,13 +31,13 @@ let lastUpdateTime = 0;
 let playbackMode = localStorage.getItem('playbackMode') || 'loop';
 
 notch.addEventListener('mouseenter', () => {
-    ipcRenderer.send('toggle-mouse-events', false);
+    notchBridge.setMouseEventsIgnore(false);
     notch.classList.add('expanded');
     setTimeout(checkLyricsOverflow, 300);
 });
 
 notch.addEventListener('mouseleave', () => {
-    ipcRenderer.send('toggle-mouse-events', true);
+    notchBridge.setMouseEventsIgnore(true);
     notch.classList.remove('expanded');
     setTimeout(checkLyricsOverflow, 300);
 });
