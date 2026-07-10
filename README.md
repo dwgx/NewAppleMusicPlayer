@@ -1,129 +1,144 @@
-# Apple MusicPlayer 🎵✨
+# Apple MusicPlayer
 
-#### 演示视频 🎥
-哔哩哔哩
-[AppleMusicPlayer 完整展示](https://www.bilibili.com/video/BV1mBRSYaEwx?vd_source=db744a4d7ef94ed65203fb0f2b5fb021)
-[AppleMusicPlayer 灵动岛 幼稚园杀手版展示](https://www.bilibili.com/video/BV1HYZUYZEgb?vd_source=db744a4d7ef94ed65203fb0f2b5fb021)  
+A local music player for Windows with a Dynamic Island-style floating mini player.
 
-Youtube
-[仿AppleMusicPlayer本地音乐播放器设计](https://www.youtube.com/watch?v=hK28IQMAqKU)
+Windows 桌面本地音乐播放器，带灵动岛风格的悬浮迷你播放器。
 
-灵动岛的独立演示 展示幼稚园杀手专辑 看它如何在桌面活动
-一览播放器的全貌 从主界面到灵动岛 体验音乐与设计的完美融合
+---
 
-## 项目背景 🌟
-本项目由 https://github.com/codecrafter-tl/musicplayer 项目作为地基代码开发
+## Overview / 概述
 
+Apple MusicPlayer is an Electron desktop player for local audio files. It has two interfaces: a full-featured main window (`index.html`) and a standalone always-on-top "Dynamic Island" mini player (`electron-notch.html`) that floats at the top of your screen. Built on top of [codecrafter-tl/musicplayer](https://github.com/codecrafter-tl/musicplayer).
 
-再哔哩哔哩看到了实用又好看的本地音乐播放器 因为迷恋幼稚园杀手 同时享受视觉上的愉悦 Apple MusicPlayer 就是这个梦想的结晶 它不仅支持常见的音频格式 MP3 FLAC OGG 还能加载 LRC 歌词 展示专辑封面 甚至通过波形可视化让音乐跳动起来 灵动岛的加入更是锦上添花 让桌面体验变得生动而有趣
+基于 Electron 的 Windows 桌面播放器，用来播放本地音频。两个界面：功能完整的主窗口（`index.html`），以及悬浮在屏幕顶部、仿 Apple 灵动岛的独立迷你播放器窗口（`electron-notch.html`）。项目从 [codecrafter-tl/musicplayer](https://github.com/codecrafter-tl/musicplayer) 的基础代码发展而来。
 
-无论是深夜 coding 的背景音乐 还是周末放松时的专属播放器 它都能完美胜任 现在我迫不及待地把它分享到 GitHub 与大家一起探索和完善
+## Features / 功能
 
-还有 我用新苹果🍎
-## 核心亮点 ✨
+- **Dynamic Island notch / 灵动岛悬浮播放器** — 独立无边框、透明、置顶的迷你窗口，居中悬浮在桌面顶部
+- **Folder import / 文件夹批量导入** — 通过 `webkitdirectory` 一次性导入整个文件夹的音频、歌词和图片
+- **Multiple formats / 多格式音频** — 支持 `.mp3`、`.flac`、`.ogg`；主窗口还支持 `.mp4`、`.webm` 与图片
+- **LRC lyrics / LRC 歌词** — 自动匹配并滚动显示 `.lrc` 歌词
+- **Metadata / 音频元数据** — 通过 jsmediatags 读取标签与专辑封面，弹窗展示歌曲详情
+- **Waveform visualization / 波形可视化** — Web Audio API（AnalyserNode，fftSize 512）驱动波形动画
+- **Playback modes / 播放模式** — 正序、倒序、循环、随机
+- **Background modes / 背景模式** — 从专辑封面取色块或使用图片作为动态背景
+- **Playlist & search / 播放列表与搜索** — 侧栏播放列表，按歌名搜索
+- **Volume & speed / 音量与倍速** — 音量条与播放速度控制
+- **Keyboard shortcuts / 键盘快捷键** — 见下方使用方法
+- **Adaptive layout / 自适应** — 灵动岛窗口宽度约为屏幕一半，分辨率变化时自动居中
 
-灵动岛 Notch 体验  
-一个高仿 Apple 移动端 悬浮在屏幕顶部的迷你播放器 鼠标悬停时展开 展示封面 歌词 进度和控制按钮 宛如 macOS 的灵动岛 优雅又实用
+<!-- TODO: confirm whether OGG album-art/metadata parsing works for all listed formats in practice. -->
 
-动态波形可视化  
-音频波形随着节奏跳动 专辑封面色彩融入波形渐变 让每一首歌都变成一场视觉盛宴
+## Tech Stack / 技术栈
 
-歌词与元数据支持  
-自动匹配 LRC 歌词 实时滚动显示 借助 jsmediatags 读取音频元数据 呈现歌曲信息
+| Technology | Version | Role |
+|---|---|---|
+| [Electron](https://www.electronjs.org/) | ^30.0.0 | 桌面应用框架 / desktop shell (devDep) |
+| [electron-builder](https://www.electron.build/) | ^24.13.3 | Windows NSIS 打包 / packaging (devDep) |
+| HTML / CSS / JavaScript | — | 界面与逻辑，无框架 / vanilla UI and logic |
+| [jsmediatags](https://github.com/aadsm/jsmediatags) | 3.9.5 | 音频元数据解析 / audio metadata (vendored in `libs/`) |
+| [Font Awesome Free](https://fontawesome.com/) | 6.7.2 | 图标 / icons (vendored in `libs/`) |
+| Web Audio API | — | 波形分析与可视化 / waveform analysis |
 
-自适应屏幕  
-无论什么分辨率 窗口和灵动岛始终居中靠上 完美适配你的桌面
+内置字体 / Bundled fonts: SF Pro Display/Text, PingFang SC (`libs/*.woff2`)
 
-播放模式多样  
-支持顺序 循环 随机和倒序播放 满足不同心情下的听歌需求
+运行时无 npm 依赖，只有开发期的 electron 和 electron-builder。jsmediatags 与 Font Awesome 以源码形式放在 `libs/` 目录中。
 
-自定义背景  
-从专辑封面提取色彩 生成动态模糊背景 沉浸感拉满
+## Project Structure / 项目结构
 
-文件夹批量加载  
-一键导入文件夹 支持音频 歌词和图片文件 自动整理播放列表
-
-## 技术栈 🛠️
-
-Electron 跨平台桌面应用框架 带来原生体验  
-HTML CSS JavaScript 构建直观且美观的界面  
-FontAwesome 提供优雅的图标支持  
-jsmediatags 解析音频元数据  
-Web Audio API 实现波形可视化和音频分析
-
-## 快速上手 🚀
-
-下载后只需双击 indexhtml 选择你准备好的文件夹 就能开始享受音乐 想深入开发或打包 请继续以下步骤
-
-### 前置条件
-Nodejs 建议 v18 或更高版本  
-Git
-
-### 安装步骤
-1 克隆项目到本地
-```bash
-
-git clone https://githubcom/dwgx/AppleMusicPlayergit
 ```
-```bash
-
-cd AppleMusicPlayer
+NewAppleMusicPlayer/
+├── main.js                # Electron 主进程：灵动岛窗口、全局快捷键、鼠标穿透 IPC
+├── preload.js             # contextBridge: notchBridge.setMouseEventsIgnore
+├── electron-notch.html    # 灵动岛窗口页面
+├── electron-notch.js      # 灵动岛窗口逻辑
+├── electron-notch.css     # 灵动岛窗口样式
+├── index.html             # 主窗口页面（浏览器直接打开也能用）
+├── index.js               # 主窗口逻辑（播放、歌词、波形、播放列表等）
+├── index.css              # 主窗口样式
+├── settings.html          # 设置页：播放模式与背景模式（localStorage）
+├── package.json           # 脚本与 electron-builder 配置
+├── LICENSE                # MIT
+└── libs/                  # 内置静态资源：Font Awesome、jsmediatags、字体、图标
 ```
-2 安装依赖
-```bash
 
+## Getting Started / 快速开始
+
+### Prerequisites / 前置条件
+
+- Node.js v18+
+- npm
+- Git
+
+<!-- TODO: package.json 未声明 "engines"；v18+ 为建议值，未在代码中强制。 -->
+
+### Install & Run / 安装与运行
+
+```bash
+git clone https://github.com/dwgx/NewAppleMusicPlayer.git
+cd NewAppleMusicPlayer
 npm install
-```
-3 启动独立灵动岛
-```bash
-
 npm start
 ```
-4 打包成可执行文件 Windows
+
+`npm start` 运行 `electron .`，加载灵动岛迷你播放器窗口。
+
+主窗口 `index.html` 是纯前端页面，也可以直接在浏览器中双击打开使用。当前 Electron 主进程默认只加载灵动岛窗口。
+
+<!-- TODO: confirm the intended entry point for the full main-window experience under Electron. -->
+
+### Build (Windows) / 打包
 
 ```bash
-npm run package
-```
-打包结果会出现在 dist 文件夹中
-
-### 使用方法
-#### 点击灵动岛的专辑封面或主界面的音乐图标 选择文件夹或单个音频文件
-#### 支持的文件类型 mp3 flac ogg lrc 图片文件
-#### 用鼠标拖动进度条 音量条 或用键盘快捷键 空格播放 暂停 左右箭头快进 快退 控制播放
-
-```
-项目结构 📂
-AppleMusicPlayer/
-├── libs # 静态资源 字体 FontAwesome jsmediatags等
-├── dist # 打包输出目录
-├── indexhtml # 主窗口页面
-├── indexjs # 主窗口逻辑
-├── indexcss # 主窗口样式
-├── electron-notchhtml # 灵动岛窗口页面
-├── electron-notchjs # 灵动岛逻辑
-├── electron-notchcss # 灵动岛样式
-├── mainjs # Electron 主进程
-├── packagejson # 项目配置和依赖
-└── READMEmd # 你正在读的文件
-```
-# 未来计划 🌈
-#### 播放列表管理 添加拖拽排序 保存播放列表功能
-#### 主题切换 支持浅色 深色模式 甚至自定义主题
-#### 在线歌词 从网络抓取歌词 解决无本地 LRC 的遗憾
-#### 在线音乐 集成网易云音乐登录 畅享云端曲库
-#### 性能优化 减少内存占用 提升大规模播放列表的流畅度
-```
-贡献指南 🤝
-喜欢这个项目 欢迎加入改进的行列
-Fork 项目 提交 Pull Request
-有 Bug 或建议 请在 Issues 中告诉我
-一起让它变得更好吧
+npm run package   # electron-builder --win --x64 -> dist/
 ```
 
-# 致谢
-感谢 Electron FontAwesome 和 jsmediatags 的开发者 给了我实现梦想的工具 也要感谢你 是的 就是你 愿意体验和支持这个项目
+输出 Windows x64 NSIS 安装包（`appId: apple.dwgx.musicplayer`，图标 `libs/favicon-32.ico`）。
 
-## License
-#### 本项目采用 MIT [LICENSE](LICENSE) 自由使用 修改和分享 但请保留原作者信息
-Apple MusicPlayer 
+## Usage / 使用方法
 
+1. 点击主界面的音乐图标（或灵动岛专辑封面）打开文件选择器，选一个文件夹或音频文件
+2. 支持导入：`.mp3`、`.flac`、`.ogg`、`.lrc`、图片；主窗口还支持 `.mp4`、`.webm`
+3. 用进度条、音量条、倍速条控制播放，或用键盘快捷键
+
+### Keyboard Shortcuts / 键盘快捷键
+
+| Key / 按键 | Action / 动作 |
+|---|---|
+| `Space` | 播放 / 暂停 |
+| `→` / `←` | 快进 / 快退 5 秒 |
+| `Ctrl + →` / `Ctrl + ←` | 下一首 / 上一首 |
+| `Tab` | 显示 / 隐藏播放列表 |
+| `Ctrl/Cmd + Q` | 退出应用 (global) |
+
+## Configuration / 配置
+
+设置页 `settings.html` 将选项写入 `localStorage`，主窗口通过 `postMessage` 接收更新。
+
+| Key | Values | Default |
+|---|---|---|
+| `playbackMode` | `sequential` / `reverse` / `loop` / `random` | `loop` |
+| `backgroundMode` | `color` / `image` | `color` |
+| `volume` | 0–100 | — |
+
+IPC：渲染进程通过 `preload.js` 暴露的 `notchBridge.setMouseEventsIgnore(ignore)` 调用 `toggle-mouse-events`，控制灵动岛的鼠标穿透。
+
+## Demos / 演示
+
+- Bilibili — [完整展示](https://www.bilibili.com/video/BV1mBRSYaEwx) · [灵动岛演示](https://www.bilibili.com/video/BV1HYZUYZEgb)
+- YouTube — [仿 Apple Music 本地播放器](https://www.youtube.com/watch?v=hK28IQMAqKU)
+
+## Status / 状态
+
+个人项目，仍在完善中。后续计划：播放列表拖拽排序与保存、主题切换（浅色/深色/自定义）、在线歌词抓取、网易云音乐集成、大播放列表性能优化。
+
+Personal project, work in progress. Planned: drag-to-reorder playlists, light/dark/custom themes, online lyrics fetching, NetEase Cloud Music integration, performance tuning for large playlists.
+
+## License / 许可证
+
+[MIT](LICENSE) — Copyright (c) 2025 帝王尬笑
+
+## Acknowledgements / 致谢
+
+- 基础代码来自 [codecrafter-tl/musicplayer](https://github.com/codecrafter-tl/musicplayer)
+- 内置第三方资源：[Font Awesome Free](https://fontawesome.com/)、[jsmediatags](https://github.com/aadsm/jsmediatags)，许可证随各自目录保留
